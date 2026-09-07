@@ -1,0 +1,39 @@
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "完成高数第一章",
+  "description": "完成课本和课后习题",
+  "priority": "HIGH",
+  "deadline": "2026-08-27T20:00:00"
+}
+
+###
+GET http://localhost:8080/api/tasks
+
+###
+
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message":"你好，请介绍一下你自己"
+}
+
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+"message": "帮我创建一个任务，标题是练习控笔训练，描述是进行控笔训练，优先级是HIGH，开始时间是2026-08-27T19:00:00，截止时间是2026-08-27T20:00:00"
+}
+
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建一个明天晚上7点到8点的控笔训练任务，优先级高。"
+}
