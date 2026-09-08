@@ -109,4 +109,60 @@ public class TaskTool {
                 summaries
         );
     }
+
+    @Tool(
+            name = "get_task",
+            description = "根据任务 ID 查询单个任务的详细信息。"
+                    + "当用户询问'任务 1 的详情'、'看看 ID 为 3 的任务'、'某个任务是什么'时使用。"
+                    + "需要用户提供任务 ID；如果用户不知道 ID，应先用 list_tasks 查询所有任务再获取 ID。")
+    public ToolResult<TaskSummary> getTask(
+            @ToolParam(description = "任务 ID，纯数字，例如 1") Long id
+    ) {
+        try {
+            Task task = taskService.getTaskById(id);
+
+            log.info("get_task 执行成功，taskId={}", id);
+
+            return ToolResult.success(
+                    "已找到任务：" + task.getTitle(),
+                    TaskSummary.from(task)
+            );
+
+        } catch (BusinessException e) {
+            log.warn("get_task 查询失败，taskId={}, 原因={}", id, e.getMessage());
+
+            return ToolResult.failure(
+                    "查询任务失败：" + e.getMessage()
+                            + "。请向用户确认任务 ID 是否正确，或先用 list_tasks 查看所有任务。");
+        }
+    }
+
+    @Tool(
+            name = "search_tasks",
+            description = "按关键字搜索任务，匹配标题或描述（不区分大小写）。"
+                    + "当用户询问'找包含某某的任务'、'搜索某个关键词'、'查找类似的任务'时使用。"
+                    + "关键字可以是中文或英文；空字符串或只传空格会返回所有任务。")
+    public ToolResult<List<TaskSummary>> searchTasks(
+            @ToolParam(description = "搜索关键字，例如 '控笔'、'阅读'、'数学'") String keyword
+    ) {
+
+        List<Task> tasks = taskService.searchTasks(keyword);
+
+        List<TaskSummary> summaries = tasks.stream()
+                .map(TaskSummary::from)
+                .toList();
+
+        log.info("search_tasks 执行成功，关键字='{}'，匹配数量={}", keyword, summaries.size());
+
+        if (summaries.isEmpty()) {
+            return ToolResult.failure(
+                    "没有找到包含 '" + keyword + "' 的任务。请换个关键字试试，或用 list_tasks 查看所有任务。");
+        }
+
+        return ToolResult.success(
+                "找到 " + summaries.size() + " 个包含 '" + keyword + "' 的任务。",
+                summaries
+        );
+    }
+
 }

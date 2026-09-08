@@ -68,3 +68,24 @@ Content-Type: application/json
 ### ---------- 验证：查全部任务 ----------
 
 GET http://localhost:8080/api/tasks
+
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "搜一下"
+}
+
+###
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "阅读",
+  "description": "练习",
+  "priority": "HIGH",
+  "startTime": "2026-09-10T19:00:00",
+  "deadline": "2026-09-10T20:00:00"
+}

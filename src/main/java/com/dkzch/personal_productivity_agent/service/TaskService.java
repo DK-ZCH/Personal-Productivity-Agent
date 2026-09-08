@@ -5,6 +5,8 @@ import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
 import com.dkzch.personal_productivity_agent.model.enums.TaskStatus;
 import org.springframework.stereotype.Service;
+
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -36,6 +38,31 @@ public class TaskService {
 
         return task;
     }
+
+    public Task getTaskById(Long id) {
+
+        return tasks.stream()
+                .filter(task -> task.getId().equals(id))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("任务不存在，id=" + id));
+    }
+
+    //按关键字搜索任务，匹配 title 或 description（不区分大小写）。
+    public List<Task> searchTasks(String keyword) {
+
+        if (keyword == null || keyword.isBlank()) {
+            return getAllTasks();
+        }
+
+        String lower = keyword.toLowerCase(Locale.ROOT);
+
+        return tasks.stream()
+                .filter(task ->
+                        (task.getTitle() != null && task.getTitle().toLowerCase(Locale.ROOT).contains(lower))
+                                || (task.getDescription() != null && task.getDescription().toLowerCase(Locale.ROOT).contains(lower)))
+                .toList();
+    }
+
 
     //创建任务的业务规则校验
     private void validateCreateRequest(CreateTaskRequest request) {
