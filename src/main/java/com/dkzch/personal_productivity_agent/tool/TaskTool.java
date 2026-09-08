@@ -193,4 +193,44 @@ public class TaskTool {
         }
     }
 
+    @Tool(
+            name = "update_task",
+            description = "部分更新任务的信息（修改标题/描述/优先级/时间等）。"
+                    + "当用户说'把任务 1 改名为某某'、'调整截止时间'、'把优先级改为高'时使用。"
+                    + "所有可更新字段都是可选的：不传或传 null 表示不更新；至少要更新一个字段。"
+                    + "不能修改已完成的任务。不能修改 id、userId、status（这些是系统管理的）。")
+    public ToolResult<TaskSummary> updateTask(
+            @ToolParam(description = "要更新的任务 ID") Long id,
+
+            @ToolParam(description = "新标题（不更新请不传）", required = false) String title,
+
+            @ToolParam(description = "新描述（不更新请不传）", required = false) String description,
+
+            @ToolParam(description = "新优先级，可选 LOW/MEDIUM/HIGH（不更新请不传）", required = false) String priority,
+
+            @ToolParam(description = "新开始时间，ISO-8601 格式（不更新请不传）", required = false) String startTime,
+
+            @ToolParam(description = "新截止时间，ISO-8601 格式（不更新请不传）", required = false) String deadline
+    ) {
+
+        try {
+            Task task = taskService.updateTask(id, title, description, priority, startTime, deadline);
+
+            log.info("update_task 执行成功，taskId={}", id);
+
+            return ToolResult.success(
+                    "任务已更新：" + task.getTitle(),
+                    TaskSummary.from(task)
+            );
+
+        } catch (BusinessException e) {
+            log.warn("update_task 执行失败，taskId={}, 原因={}", id, e.getMessage());
+
+            return ToolResult.failure(
+                    "无法更新任务：" + e.getMessage()
+                            + "。请向用户确认 ID 和要修改的字段，必要时先用 list_tasks 查看。");
+        }
+    }
+
+
 }

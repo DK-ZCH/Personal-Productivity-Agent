@@ -1,10 +1,12 @@
 package com.dkzch.personal_productivity_agent.service;
 
 import com.dkzch.personal_productivity_agent.common.BusinessException;
+import com.dkzch.personal_productivity_agent.common.TaskParamParser;
 import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
 import com.dkzch.personal_productivity_agent.model.enums.TaskStatus;
 import org.springframework.stereotype.Service;
+import com.dkzch.personal_productivity_agent.model.enums.TaskPriority;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -85,6 +87,86 @@ public class TaskService {
 
         task.setStatus(TaskStatus.COMPLETED);
         task.setCompletedAt(LocalDateTime.now());
+
+        return task;
+    }
+
+    /**
+     * 部分更新任务。所有可更新字段都可选（null 表示不更新），但至少要更新一个字段。
+     *
+     * 可更新字段：title、description、priority、startTime、deadline
+     * 不可更新字段：id、userId、status、createdAt、completedAt（系统管理）
+     * 不能更新已完成的任务（避免改历史）
+     *
+     * 实现原则：先解析并校验所有新值，全部通过后再一次性写回，
+     * 保证校验失败时不会留下部分修改（内存存储没有事务回滚）。
+     */
+    public Task updateTask(Long id, String title, String description,
+                           String priority, String startTime, String deadline) {
+
+        Task task = getTaskById(id);
+
+        if (task.getStatus() == TaskStatus.COMPLETED) {
+            throw new BusinessException("任务已完成，不能修改，id=" + id);
+        }
+
+        // 至少更新一个字段
+        if (title == null && description == null && priority == null
+                && startTime == null && deadline == null) {
+            throw new BusinessException("至少需要更新一个字段（title/description/priority/startTime/deadline）");
+        }
+
+        // ---------- 第一步：解析新值（此时不改动 task） ----------
+
+        LocalDateTime parsedStart = null;
+        if (startTime != null) {
+            parsedStart = TaskParamParser.parseDateTime(startTime);
+            if (parsedStart == null) {
+                throw new BusinessException("开始时间格式无法识别：" + startTime);
+            }
+        }
+
+        LocalDateTime parsedDeadline = null;
+        if (deadline != null) {
+            parsedDeadline = TaskParamParser.parseDateTime(deadline);
+            if (parsedDeadline == null) {
+                throw new BusinessException("截止时间格式无法识别：" + deadline);
+            }
+        }
+
+        // ---------- 第二步：算出"更新后"的最终值（新值优先，否则沿用旧值） ----------
+
+        String finalTitle = (title != null) ? title : task.getTitle();
+        String finalDescription = (description != null) ? description : task.getDescription();
+        TaskPriority finalPriority = (priority != null)
+                ? TaskParamParser.parsePriority(priority)
+                : task.getPriority();
+        LocalDateTime finalStart = (parsedStart != null) ? parsedStart : task.getStartTime();
+        LocalDateTime finalDeadline = (parsedDeadline != null) ? parsedDeadline : task.getDeadline();
+
+        // ---------- 第三步：用最终值做完整校验（task 此时还是原样） ----------
+
+        if (finalTitle == null || finalTitle.isBlank()) {
+            throw new BusinessException("标题不能为空");
+        }
+
+        if (!finalDeadline.isAfter(finalStart)) {
+            throw new BusinessException(
+                    "截止时间必须晚于开始时间。开始时间：" + finalStart
+                            + "，截止时间：" + finalDeadline);
+        }
+
+        if (finalStart.isBefore(LocalDateTime.now())) {
+            throw new BusinessException("开始时间不能早于当前时间：" + finalStart);
+        }
+
+        // ---------- 第四步：全部通过，一次性写回 ----------
+
+        task.setTitle(finalTitle);
+        task.setDescription(finalDescription);
+        task.setPriority(finalPriority);
+        task.setStartTime(finalStart);
+        task.setDeadline(finalDeadline);
 
         return task;
     }

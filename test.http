@@ -75,7 +75,7 @@ POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "把任务999标记为完成"
+  "message": "把任务1改名为别的"
 }
 
 ###
@@ -83,7 +83,31 @@ POST http://localhost:8080/api/tasks
 Content-Type: application/json
 
 {
-  "title": "复习",
+  "title": "练字",
+  "description": "练习字体",
+  "priority": "HIGH",
+  "startTime": "2026-09-10T19:00:00",
+  "deadline": "2026-09-10T20:00:00"
+}
+
+###
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "阅读",
+  "description": "练习阅读",
+  "priority": "HIGH",
+  "startTime": "2026-09-10T19:00:00",
+  "deadline": "2026-09-10T20:00:00"
+}
+
+###
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "复习数学",
   "description": "练习数学题",
   "priority": "HIGH",
   "startTime": "2026-09-10T19:00:00",
