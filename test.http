@@ -75,7 +75,7 @@ POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "把任务1改名为别的"
+  "message": "删除任务999"
 }
 
 ###
@@ -110,6 +110,18 @@ Content-Type: application/json
   "title": "复习数学",
   "description": "练习数学题",
   "priority": "HIGH",
+  "startTime": "2026-09-10T19:00:00",
+  "deadline": "2026-09-10T20:00:00"
+}
+
+###
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "新任务",
+  "description": "验证 id 不重复",
+  "priority": "MEDIUM",
   "startTime": "2026-09-10T19:00:00",
   "deadline": "2026-09-10T20:00:00"
 }

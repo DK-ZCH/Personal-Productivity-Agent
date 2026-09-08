@@ -171,6 +171,16 @@ public class TaskService {
         return task;
     }
 
+    //永久删除任务（硬删除）。
+    public Task deleteTask(Long id) {
+
+        Task task = getTaskById(id);
+
+        tasks.remove(task);
+
+        return task;
+    }
+
 
     //创建任务的业务规则校验
     private void validateCreateRequest(CreateTaskRequest request) {

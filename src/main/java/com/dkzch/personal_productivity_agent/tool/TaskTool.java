@@ -232,5 +232,33 @@ public class TaskTool {
         }
     }
 
+    @Tool(
+            name = "delete_task",
+            description = "永久删除指定的任务，此操作不可恢复！"
+                    + "当用户明确要求删除任务时使用（例如'删除任务 2'、'把某个任务删掉'）。"
+                    + "需要任务 ID；如果用户不确定 ID，先用 list_tasks 或 search_tasks 查找。")
+    public ToolResult<TaskSummary> deleteTask(
+            @ToolParam(description = "要删除的任务 ID，纯数字") Long id
+    ) {
+        try {
+            Task task = taskService.deleteTask(id);
+
+            log.info("delete_task 执行成功，taskId={}, title={}", id, task.getTitle());
+
+            return ToolResult.success(
+                    "任务已永久删除：" + task.getTitle(),
+                    TaskSummary.from(task)
+            );
+
+        } catch (BusinessException e) {
+            log.warn("delete_task 执行失败，taskId={}, 原因={}", id, e.getMessage());
+
+            return ToolResult.failure(
+                    "无法删除任务：" + e.getMessage()
+                            + "。请向用户确认任务 ID 是否正确，必要时先用 list_tasks 查看。");
+        }
+    }
+
+
 
 }
