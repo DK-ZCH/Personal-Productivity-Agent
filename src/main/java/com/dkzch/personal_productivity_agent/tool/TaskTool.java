@@ -165,4 +165,32 @@ public class TaskTool {
         );
     }
 
+    @Tool(
+            name = "complete_task",
+            description = "将指定任务标记为已完成。"
+                    + "当用户说'完成某个任务'、'任务做完了'、'把任务 1 标记为完成'时使用。"
+                    + "需要任务 ID；如果用户不知道 ID，先用 list_tasks 或 search_tasks 查找。"
+                    + "如果任务已经是完成状态，会返回失败提示。")
+    public ToolResult<TaskSummary> completeTask(
+            @ToolParam(description = "要标记完成的任务 ID，纯数字") Long id
+    ) {
+        try {
+            Task task = taskService.completeTask(id);
+
+            log.info("complete_task 执行成功，taskId={}, title={}", id, task.getTitle());
+
+            return ToolResult.success(
+                    "任务已完成：" + task.getTitle(),
+                    TaskSummary.from(task)
+            );
+
+        } catch (BusinessException e) {
+            log.warn("complete_task 执行失败，taskId={}, 原因={}", id, e.getMessage());
+
+            return ToolResult.failure(
+                    "无法完成任务：" + e.getMessage()
+                            + "。请向用户确认任务 ID 和当前状态，必要时先用 list_tasks 查看。");
+        }
+    }
+
 }

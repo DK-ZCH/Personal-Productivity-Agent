@@ -63,6 +63,32 @@ public class TaskService {
                 .toList();
     }
 
+    /**
+     * 将任务标记为已完成。
+     *
+     * 状态流转规则：
+     * TODO / IN_PROGRESS → COMPLETED（允许）
+     * COMPLETED         → 拒绝（不能重复完成）
+     * CANCELLED         → 拒绝（已取消不能完成）
+     */
+    public Task completeTask(Long id) {
+
+        Task task = getTaskById(id);
+
+        if (task.getStatus() == TaskStatus.COMPLETED) {
+            throw new BusinessException("任务已经是完成状态，不能重复完成，id=" + id);
+        }
+
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            throw new BusinessException("任务已取消，不能标记为完成，id=" + id);
+        }
+
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(LocalDateTime.now());
+
+        return task;
+    }
+
 
     //创建任务的业务规则校验
     private void validateCreateRequest(CreateTaskRequest request) {
