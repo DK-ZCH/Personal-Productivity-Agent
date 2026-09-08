@@ -2,23 +2,36 @@ package com.dkzch.personal_productivity_agent.model.entity;
 
 import com.dkzch.personal_productivity_agent.model.enums.TaskPriority;
 import com.dkzch.personal_productivity_agent.model.enums.TaskStatus;
+import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
+@Entity
+@Table(name = "tasks")
 public class Task {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private Long userId;
 
+    @Column(nullable = false, length = 200)
     private String title;
 
+    @Column(length = 1000)
     private String description;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private TaskPriority priority;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private TaskStatus status;
 
+    @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     private LocalDateTime startTime;
@@ -28,23 +41,6 @@ public class Task {
     private LocalDateTime completedAt;
 
     public Task() {
-    }
-
-    public Task(Long id, Long userId, String title, String description,
-                TaskPriority priority, TaskStatus status,
-                LocalDateTime createdAt, LocalDateTime startTime,
-                LocalDateTime deadline, LocalDateTime completedAt) {
-
-        this.id = id;
-        this.userId = userId;
-        this.title = title;
-        this.description = description;
-        this.priority = priority;
-        this.status = status;
-        this.createdAt = createdAt;
-        this.startTime = startTime;
-        this.deadline = deadline;
-        this.completedAt = completedAt;
     }
 
     public Long getId() {
