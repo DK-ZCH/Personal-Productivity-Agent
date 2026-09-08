@@ -5,9 +5,11 @@ import com.dkzch.personal_productivity_agent.common.TaskParamParser;
 import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
 import com.dkzch.personal_productivity_agent.model.enums.TaskStatus;
+import com.dkzch.personal_productivity_agent.repository.TaskRepository;
 import org.springframework.stereotype.Service;
 import com.dkzch.personal_productivity_agent.model.enums.TaskPriority;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.time.LocalDateTime;
@@ -17,16 +19,19 @@ import java.util.List;
 @Service
 public class TaskService {
 
-    private final List<Task> tasks = new ArrayList<>();
+    private static final Logger log = LoggerFactory.getLogger(TaskService.class);
 
-    //线程安全的 id 生成器
-    private final AtomicLong idGenerator = new AtomicLong(0);
+    private final TaskRepository taskRepository;
+
+    public TaskService(TaskRepository taskRepository) {
+        this.taskRepository = taskRepository;
+    }
+
     public Task createTask(CreateTaskRequest request) {
 
         validateCreateRequest(request);
         Task task = new Task();
 
-        task.setId(idGenerator.incrementAndGet());
         task.setUserId(1L);
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
@@ -36,34 +41,29 @@ public class TaskService {
         task.setStartTime(request.getStartTime());
         task.setDeadline(request.getDeadline());
 
-        tasks.add(task);
+        Task saved = taskRepository.save(task);
 
-        return task;
+        log.info("任务已创建: id={}, title={}", saved.getId(), saved.getTitle());
+        return saved;
     }
 
     public Task getTaskById(Long id) {
 
-        return tasks.stream()
-                .filter(task -> task.getId().equals(id))
-                .findFirst()
+        return taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("任务不存在，id=" + id));
     }
 
-    //按关键字搜索任务，匹配 title 或 description（不区分大小写）。
+    public List<Task> getAllTasks() {
+        return taskRepository.findAll();
+    }
     public List<Task> searchTasks(String keyword) {
 
         if (keyword == null || keyword.isBlank()) {
             return getAllTasks();
         }
-
-        String lower = keyword.toLowerCase(Locale.ROOT);
-
-        return tasks.stream()
-                .filter(task ->
-                        (task.getTitle() != null && task.getTitle().toLowerCase(Locale.ROOT).contains(lower))
-                                || (task.getDescription() != null && task.getDescription().toLowerCase(Locale.ROOT).contains(lower)))
-                .toList();
+        return taskRepository.searchByKeyword(keyword.trim());
     }
+
 
     /**
      * 将任务标记为已完成。
@@ -88,7 +88,7 @@ public class TaskService {
         task.setStatus(TaskStatus.COMPLETED);
         task.setCompletedAt(LocalDateTime.now());
 
-        return task;
+        return taskRepository.save(task);
     }
 
     /**
@@ -168,16 +168,16 @@ public class TaskService {
         task.setStartTime(finalStart);
         task.setDeadline(finalDeadline);
 
-        return task;
+        return taskRepository.save(task);
     }
 
     //永久删除任务（硬删除）。
     public Task deleteTask(Long id) {
 
         Task task = getTaskById(id);
+        taskRepository.delete(task);
 
-        tasks.remove(task);
-
+        log.info("任务已删除: id={}, title={}", id, task.getTitle());
         return task;
     }
 
@@ -216,8 +216,5 @@ public class TaskService {
                     "截止时间必须晚于开始时间。收到的开始时间：" + startTime
                             + "，截止时间：" + deadline + "。");
         }
-    }
-    public List<Task> getAllTasks() {
-        return tasks;
     }
 }

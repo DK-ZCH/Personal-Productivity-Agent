@@ -5,34 +5,57 @@ import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
 import com.dkzch.personal_productivity_agent.model.enums.TaskPriority;
 import com.dkzch.personal_productivity_agent.model.enums.TaskStatus;
+import com.dkzch.personal_productivity_agent.repository.TaskRepository;
 import com.dkzch.personal_productivity_agent.service.TaskService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import static org.mockito.Mockito.lenient;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class TaskServiceTest {
+
+    @Mock
+    private TaskRepository taskRepository;
 
     private TaskService taskService;
 
-    /** 稳定的未来时间：比 now 晚 1 天并去掉纳秒，避免时间边界导致测试不稳定 */
+    /** 模拟数据库 AUTO_INCREMENT：save 时为无 id 的实体回填 id */
+    private final AtomicLong idCounter = new AtomicLong(1);
+
     private LocalDateTime futureStart;
     private LocalDateTime futureDeadline;
 
     @BeforeEach
     void setUp() {
-        taskService = new TaskService();
+        // 手动构造器注入：依赖关系一目了然
+        taskService = new TaskService(taskRepository);
         futureStart = LocalDateTime.now().plusDays(1).withNano(0);
         futureDeadline = futureStart.plusHours(1);
+
+        lenient().when(taskRepository.save(any(Task.class))).thenAnswer(inv -> {
+            Task t = inv.getArgument(0);
+            if (t.getId() == null) {
+                t.setId(idCounter.getAndIncrement());
+            }
+            return t;
+        });
     }
 
-    /** 造一条合法任务并返回创建结果 */
     private Task createOneTask(String title) {
         CreateTaskRequest request = new CreateTaskRequest();
         request.setTitle(title);
@@ -68,7 +91,7 @@ class TaskServiceTest {
         }
 
         @Test
-        @DisplayName("空白标题应抛 BusinessException")
+        @DisplayName("空白标题抛 BusinessException")
         void blankTitleRejected() {
             CreateTaskRequest request = new CreateTaskRequest();
             request.setTitle("   ");
@@ -80,7 +103,7 @@ class TaskServiceTest {
         }
 
         @Test
-        @DisplayName("过去时间应抛 BusinessException")
+        @DisplayName("过去时间抛 BusinessException")
         void pastTimeRejected() {
             CreateTaskRequest request = new CreateTaskRequest();
             request.setTitle("过去任务");
@@ -92,7 +115,7 @@ class TaskServiceTest {
         }
 
         @Test
-        @DisplayName("deadline 等于 startTime 也应拒绝（必须严格晚于）")
+        @DisplayName("deadline 等于 startTime 也应拒绝")
         void deadlineEqualToStartRejected() {
             CreateTaskRequest request = new CreateTaskRequest();
             request.setTitle("倒置任务");
@@ -112,6 +135,10 @@ class TaskServiceTest {
         @DisplayName("存在的 id 返回任务")
         void foundTask() {
             Task created = createOneTask("阅读");
+
+            when(taskRepository.findById(created.getId()))
+                    .thenReturn(Optional.of(created));
+
             Task found = taskService.getTaskById(created.getId());
             assertEquals(created.getTitle(), found.getTitle());
         }
@@ -119,6 +146,8 @@ class TaskServiceTest {
         @Test
         @DisplayName("不存在的 id 抛 BusinessException")
         void missingTaskThrows() {
+            when(taskRepository.findById(999L)).thenReturn(Optional.empty());
+
             assertThrows(BusinessException.class, () -> taskService.getTaskById(999L));
         }
     }
@@ -128,10 +157,11 @@ class TaskServiceTest {
     class SearchTasks {
 
         @Test
-        @DisplayName("按 title 关键字匹配")
+        @DisplayName("title 匹配：关键字委托给 Repository")
         void matchTitle() {
-            createOneTask("控笔训练");
-            createOneTask("阅读");
+            Task created = createOneTask("控笔训练");
+
+            when(taskRepository.searchByKeyword("控笔")).thenReturn(List.of(created));
 
             List<Task> result = taskService.searchTasks("控笔");
 
@@ -140,9 +170,11 @@ class TaskServiceTest {
         }
 
         @Test
-        @DisplayName("按 description 关键字匹配")
+        @DisplayName("description 匹配：关键字委托给 Repository")
         void matchDescription() {
-            createOneTask("数学"); // description = "描述-数学"
+            Task created = createOneTask("数学");
+
+            when(taskRepository.searchByKeyword("描述-数学")).thenReturn(List.of(created));
 
             List<Task> result = taskService.searchTasks("描述-数学");
 
@@ -152,7 +184,7 @@ class TaskServiceTest {
         @Test
         @DisplayName("无匹配返回空列表")
         void noMatchReturnsEmpty() {
-            createOneTask("阅读");
+            when(taskRepository.searchByKeyword("编程")).thenReturn(List.of());
 
             assertTrue(taskService.searchTasks("编程").isEmpty());
         }
@@ -160,8 +192,10 @@ class TaskServiceTest {
         @Test
         @DisplayName("空白关键字返回全部")
         void blankKeywordReturnsAll() {
-            createOneTask("任务1");
-            createOneTask("任务2");
+            Task t1 = createOneTask("任务1");
+            Task t2 = createOneTask("任务2");
+
+            when(taskRepository.findAll()).thenReturn(List.of(t1, t2));
 
             assertEquals(2, taskService.searchTasks("  ").size());
         }
@@ -176,6 +210,10 @@ class TaskServiceTest {
         void completeSuccessfully() {
             Task task = createOneTask("阅读");
 
+            // ⭐ 显式 stub：Service 内部会 findById 取回这个任务
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
+
             Task completed = taskService.completeTask(task.getId());
 
             assertEquals(TaskStatus.COMPLETED, completed.getStatus());
@@ -186,6 +224,9 @@ class TaskServiceTest {
         @DisplayName("重复完成抛 BusinessException")
         void doubleCompleteThrows() {
             Task task = createOneTask("阅读");
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
+
             taskService.completeTask(task.getId());
 
             assertThrows(BusinessException.class,
@@ -201,6 +242,8 @@ class TaskServiceTest {
         @DisplayName("部分更新：未传入的字段保持原值")
         void partialUpdate() {
             Task task = createOneTask("阅读");
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
 
             Task updated = taskService.updateTask(
                     task.getId(), "深度学习", null, null, null, null);
@@ -214,6 +257,10 @@ class TaskServiceTest {
         @DisplayName("全部字段为 null 抛 BusinessException")
         void noFieldsThrows() {
             Task task = createOneTask("阅读");
+            // ⭐ 必须显式 stub：否则 findById 返回 empty，
+            //    测试会因"任务不存在"假通过，而非"至少一个字段"被拒
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
 
             assertThrows(BusinessException.class,
                     () -> taskService.updateTask(task.getId(), null, null, null, null, null));
@@ -223,9 +270,10 @@ class TaskServiceTest {
         @DisplayName("⭐ 失败原子性：校验失败时原任务不被改动")
         void failedUpdateKeepsOriginal() {
             Task task = createOneTask("阅读");
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
             LocalDateTime originalDeadline = task.getDeadline();
 
-            // 构造一个比 startTime 更早的 deadline → 必然校验失败
             String earlyDeadline = futureStart.minusHours(2)
                     .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
 
@@ -233,7 +281,6 @@ class TaskServiceTest {
                     () -> taskService.updateTask(
                             task.getId(), null, null, null, null, earlyDeadline));
 
-            // 关键断言：原任务的 deadline 没有被改坏（先算后写生效）
             assertEquals(originalDeadline, task.getDeadline());
         }
 
@@ -241,6 +288,9 @@ class TaskServiceTest {
         @DisplayName("已完成的任务不能修改")
         void completedTaskCannotUpdate() {
             Task task = createOneTask("阅读");
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
+
             taskService.completeTask(task.getId());
 
             assertThrows(BusinessException.class,
@@ -253,28 +303,24 @@ class TaskServiceTest {
     class DeleteTask {
 
         @Test
-        @DisplayName("删除后从列表消失，返回被删的任务")
-        void deleteSuccessfully() {
-            createOneTask("任务1");
-            Task t2 = createOneTask("任务2");
+        @DisplayName("删除调用 Repository 的 delete")
+        void deleteDelegatesToRepository() {
+            Task task = createOneTask("任务1");
+            when(taskRepository.findById(task.getId()))
+                    .thenReturn(Optional.of(task));
 
-            Task deleted = taskService.deleteTask(t2.getId());
+            Task deleted = taskService.deleteTask(task.getId());
 
-            assertEquals(t2.getTitle(), deleted.getTitle());
-            assertEquals(1, taskService.getAllTasks().size());
-            assertThrows(BusinessException.class,
-                    () -> taskService.getTaskById(t2.getId()));
+            assertEquals(task.getTitle(), deleted.getTitle());
+            verify(taskRepository).delete(task);
         }
 
         @Test
-        @DisplayName("⭐ 删除后新建任务 id 不复用（AtomicLong 回归）")
-        void idNotReusedAfterDelete() {
-            Task t1 = createOneTask("任务1");
-            taskService.deleteTask(t1.getId());
+        @DisplayName("删除不存在的任务抛 BusinessException")
+        void deleteMissingThrows() {
+            when(taskRepository.findById(999L)).thenReturn(Optional.empty());
 
-            Task newTask = createOneTask("新任务");
-
-            assertTrue(newTask.getId() > t1.getId());
+            assertThrows(BusinessException.class, () -> taskService.deleteTask(999L));
         }
     }
 }
