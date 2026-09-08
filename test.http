@@ -1,35 +1,30 @@
-###
+### 创建任务
 POST http://localhost:8080/api/tasks
 Content-Type: application/json
 
 {
-  "title": "任务b",
-  "description": "测试b",
+  "title": "任务C",
+  "description": "测试C",
   "priority": "MEDIUM",
   "startTime": "2026-09-10T19:00:00",
   "deadline": "2026-09-10T20:00:00"
 }
 
-###
+### Agent 对话
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建明天晚上7点到8点的控笔训练任务，优先级高"
+}
+
+### 查询全部任务
 GET http://localhost:8080/api/tasks
 
 ###
-
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message":"你好，请介绍一下你自己"
+  "message": "帮我创建明天19:00到20:00的控笔训练任务，描述是练习控笔，优先级高"
 }
-
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-"message": "帮我创建 2026-09-10 19:00 到 20:00 的任务A"
-}
-
-
-###
