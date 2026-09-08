@@ -11,6 +11,8 @@ import com.dkzch.personal_productivity_agent.service.TaskService;
 import org.springframework.stereotype.Component;
 import org.springframework.ai.tool.annotation.Tool;
 import java.time.LocalDateTime;
+import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,5 +83,30 @@ public class TaskTool {
                     "任务创建失败：" + e.getMessage()
                             + "。请向用户确认正确信息后重试。");
         }
+    }
+
+    @Tool(
+            name = "list_tasks",
+            description = "查询当前用户的所有任务。"
+                    + "当用户询问'我有哪些任务'、'看看我的任务'、'列出所有任务'、'我的待办是什么'时使用。"
+                    + "本工具不需要任何参数，直接调用即可。")
+    public ToolResult<List<TaskSummary>> listTasks() {
+
+        List<Task> tasks = taskService.getAllTasks();
+
+        List<TaskSummary> summaries = tasks.stream()
+                .map(TaskSummary::from)
+                .toList();
+
+        log.info("list_tasks 执行成功，任务数量={}", summaries.size());
+
+        if (summaries.isEmpty()) {
+            return ToolResult.success("当前没有任何任务。", summaries);
+        }
+
+        return ToolResult.success(
+                "共查询到 " + summaries.size() + " 个任务。",
+                summaries
+        );
     }
 }

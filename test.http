@@ -1,30 +1,70 @@
-### 创建任务
+### =============================================
+### 阶段 A 端到端回归：4 类场景
+### 运行方式：IDEA HTTP Client 窗口逐个点击绿色箭头
+### =============================================
+
+
+### ---------- 场景 1：完整信息（成功路径） ----------
+
+### 1a 通过 Tool 创建（绝对时间）
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建 2026-09-10 19:00 到 20:00 的控笔训练任务，描述是练习控笔，优先级高"
+}
+
+### 1b 通过 Service 创建（绕开 LLM，验证 Service 层）
 POST http://localhost:8080/api/tasks
 Content-Type: application/json
 
 {
-  "title": "任务C",
-  "description": "测试C",
+  "title": "任务A",
+  "description": "直接通过 Service 创建",
   "priority": "MEDIUM",
   "startTime": "2026-09-10T19:00:00",
   "deadline": "2026-09-10T20:00:00"
 }
 
-### Agent 对话
+### 1c 相对时间：依赖 Step 6 的当前时间注入
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建明天晚上7点到8点的控笔训练任务，优先级高"
+  "message": "帮我创建明天 19:00 到 20:00 的阅读任务，描述是读书，优先级中"
 }
 
-### 查询全部任务
+
+### ---------- 场景 2：信息不足（Agent 应反问） ----------
+
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建个任务"
+}
+
+
+### ---------- 场景 3：模糊时间（应识别日期，时间不明可反问） ----------
+
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建下周三下午的会议准备任务，描述是准备会议，优先级中"
+}
+
+
+### ---------- 场景 4：非法优先级（应降级 MEDIUM） ----------
+
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建 2026-09-10 19:00 到 20:00 的测试任务，描述是验证，优先级超级高"
+}
+
+
+### ---------- 验证：查全部任务 ----------
+
 GET http://localhost:8080/api/tasks
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-  "message": "帮我创建明天19:00到20:00的控笔训练任务，描述是练习控笔，优先级高"
-}
