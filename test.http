@@ -67,7 +67,10 @@ Content-Type: application/json
 
 ### ---------- 验证：查全部任务 ----------
 
-GET http://localhost:8080/api/tasks
+GET http://localhost:8080/api/tasks/1
+
+###
+DELETE http://localhost:8080/api/tasks/1
 
 
 ###
