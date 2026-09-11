@@ -9,13 +9,16 @@ import java.util.List;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
 
-    /**
-     * 按关键字模糊搜索：匹配 title 或 description（不区分大小写）。
-     */
+    //只查询只属于某用户的任务
+    List<Task> findByUserId(Long userId);
+
+    //限定用户的关键字搜索：把 userId 嵌进 WHERE
     @Query("""
             select t from Task t
-            where lower(t.title) like lower(concat('%', :keyword, '%'))
-               or lower(t.description) like lower(concat('%', :keyword, '%'))
+            where t.userId = :userId
+              and (lower(t.title) like lower(concat('%', :keyword, '%'))
+                or lower(t.description) like lower(concat('%', :keyword, '%')))
             """)
-    List<Task> searchByKeyword(@Param("keyword") String keyword);
+
+    List<Task> searchByUserIdAndKeyword(@Param("userId") Long userId,@Param("keyword") String keyword);
 }

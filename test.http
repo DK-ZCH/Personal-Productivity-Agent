@@ -133,3 +133,11 @@ Content-Type: application/json
 {
   "message": "帮我看一下现在有哪些任务"
 }
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我创建 2026-09-12 晚上7点到8点的英语听力任务，优先级中"
+}

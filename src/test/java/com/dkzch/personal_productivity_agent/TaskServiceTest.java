@@ -1,6 +1,7 @@
 package com.dkzch.personal_productivity_agent;
 
 import com.dkzch.personal_productivity_agent.common.BusinessException;
+import com.dkzch.personal_productivity_agent.common.CurrentUserProvider;
 import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
 import com.dkzch.personal_productivity_agent.model.enums.TaskPriority;
@@ -14,7 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import static org.mockito.Mockito.lenient;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -23,18 +24,24 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class TaskServiceTest {
 
+    private static final Long CURRENT_USER_ID = 1L;
+    private static final Long OTHER_USER_ID = 99L;
+
     @Mock
     private TaskRepository taskRepository;
 
+    @Mock
+    private CurrentUserProvider currentUserProvider;
+
     private TaskService taskService;
 
-    /** 模拟数据库 AUTO_INCREMENT：save 时为无 id 的实体回填 id */
     private final AtomicLong idCounter = new AtomicLong(1);
 
     private LocalDateTime futureStart;
@@ -42,10 +49,11 @@ class TaskServiceTest {
 
     @BeforeEach
     void setUp() {
-        // 手动构造器注入：依赖关系一目了然
-        taskService = new TaskService(taskRepository);
+        taskService = new TaskService(taskRepository, currentUserProvider);
         futureStart = LocalDateTime.now().plusDays(1).withNano(0);
         futureDeadline = futureStart.plusHours(1);
+
+        lenient().when(currentUserProvider.getCurrentUserId()).thenReturn(CURRENT_USER_ID);
 
         lenient().when(taskRepository.save(any(Task.class))).thenAnswer(inv -> {
             Task t = inv.getArgument(0);
@@ -77,9 +85,19 @@ class TaskServiceTest {
 
             assertEquals("阅读", task.getTitle());
             assertEquals(TaskStatus.TODO, task.getStatus());
-            assertEquals(1L, task.getUserId());
+            assertEquals(CURRENT_USER_ID, task.getUserId());
             assertNotNull(task.getCreatedAt());
             assertNotNull(task.getId());
+        }
+
+        @Test
+        @DisplayName("⭐ userId 来自 Provider，不是硬编码")
+        void userIdFromProvider() {
+            when(currentUserProvider.getCurrentUserId()).thenReturn(42L);
+
+            Task task = createOneTask("阅读");
+
+            assertEquals(42L, task.getUserId());
         }
 
         @Test
@@ -132,10 +150,9 @@ class TaskServiceTest {
     class GetTaskById {
 
         @Test
-        @DisplayName("存在的 id 返回任务")
-        void foundTask() {
+        @DisplayName("存在的 id 且属于当前用户 → 返回任务")
+        void foundAndOwned() {
             Task created = createOneTask("阅读");
-
             when(taskRepository.findById(created.getId()))
                     .thenReturn(Optional.of(created));
 
@@ -145,10 +162,24 @@ class TaskServiceTest {
 
         @Test
         @DisplayName("不存在的 id 抛 BusinessException")
-        void missingTaskThrows() {
+        void missingThrows() {
             when(taskRepository.findById(999L)).thenReturn(Optional.empty());
 
             assertThrows(BusinessException.class, () -> taskService.getTaskById(999L));
+        }
+
+        @Test
+        @DisplayName("⭐ 存在但属于他人 → 也抛'不存在'（不泄露存在性）")
+        void notYoursThrows() {
+            Task others = new Task();
+            others.setId(5L);
+            others.setUserId(OTHER_USER_ID);
+            others.setTitle("别人的任务");
+            when(taskRepository.findById(5L)).thenReturn(Optional.of(others));
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> taskService.getTaskById(5L));
+            assertTrue(ex.getMessage().contains("不存在"));
         }
     }
 
@@ -157,11 +188,11 @@ class TaskServiceTest {
     class SearchTasks {
 
         @Test
-        @DisplayName("title 匹配：关键字委托给 Repository")
+        @DisplayName("title 匹配：结果来自 searchByUserIdAndKeyword")
         void matchTitle() {
             Task created = createOneTask("控笔训练");
-
-            when(taskRepository.searchByKeyword("控笔")).thenReturn(List.of(created));
+            when(taskRepository.searchByUserIdAndKeyword(CURRENT_USER_ID, "控笔"))
+                    .thenReturn(List.of(created));
 
             List<Task> result = taskService.searchTasks("控笔");
 
@@ -170,34 +201,37 @@ class TaskServiceTest {
         }
 
         @Test
-        @DisplayName("description 匹配：关键字委托给 Repository")
+        @DisplayName("description 匹配：关键字原样传给 Repository")
         void matchDescription() {
             Task created = createOneTask("数学");
-
-            when(taskRepository.searchByKeyword("描述-数学")).thenReturn(List.of(created));
+            when(taskRepository.searchByUserIdAndKeyword(CURRENT_USER_ID, "描述-数学"))
+                    .thenReturn(List.of(created));
 
             List<Task> result = taskService.searchTasks("描述-数学");
 
             assertEquals(1, result.size());
+            verify(taskRepository).searchByUserIdAndKeyword(CURRENT_USER_ID, "描述-数学");
         }
 
         @Test
         @DisplayName("无匹配返回空列表")
         void noMatchReturnsEmpty() {
-            when(taskRepository.searchByKeyword("编程")).thenReturn(List.of());
+            when(taskRepository.searchByUserIdAndKeyword(CURRENT_USER_ID, "编程"))
+                    .thenReturn(List.of());
 
             assertTrue(taskService.searchTasks("编程").isEmpty());
         }
 
         @Test
-        @DisplayName("空白关键字返回全部")
+        @DisplayName("空白关键字返回当前用户全部任务")
         void blankKeywordReturnsAll() {
             Task t1 = createOneTask("任务1");
             Task t2 = createOneTask("任务2");
-
-            when(taskRepository.findAll()).thenReturn(List.of(t1, t2));
+            when(taskRepository.findByUserId(CURRENT_USER_ID))
+                    .thenReturn(List.of(t1, t2));
 
             assertEquals(2, taskService.searchTasks("  ").size());
+            verify(taskRepository).findByUserId(CURRENT_USER_ID);
         }
     }
 
@@ -209,8 +243,6 @@ class TaskServiceTest {
         @DisplayName("完成后状态为 COMPLETED 且设置 completedAt")
         void completeSuccessfully() {
             Task task = createOneTask("阅读");
-
-            // ⭐ 显式 stub：Service 内部会 findById 取回这个任务
             when(taskRepository.findById(task.getId()))
                     .thenReturn(Optional.of(task));
 
@@ -257,8 +289,6 @@ class TaskServiceTest {
         @DisplayName("全部字段为 null 抛 BusinessException")
         void noFieldsThrows() {
             Task task = createOneTask("阅读");
-            // ⭐ 必须显式 stub：否则 findById 返回 empty，
-            //    测试会因"任务不存在"假通过，而非"至少一个字段"被拒
             when(taskRepository.findById(task.getId()))
                     .thenReturn(Optional.of(task));
 

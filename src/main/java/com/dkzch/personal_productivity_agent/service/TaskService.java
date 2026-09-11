@@ -1,6 +1,7 @@
 package com.dkzch.personal_productivity_agent.service;
 
 import com.dkzch.personal_productivity_agent.common.BusinessException;
+import com.dkzch.personal_productivity_agent.common.CurrentUserProvider;
 import com.dkzch.personal_productivity_agent.common.TaskParamParser;
 import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.entity.Task;
@@ -22,9 +23,16 @@ public class TaskService {
     private static final Logger log = LoggerFactory.getLogger(TaskService.class);
 
     private final TaskRepository taskRepository;
+    private final CurrentUserProvider currentUserProvider;
 
-    public TaskService(TaskRepository taskRepository) {
+    public TaskService(TaskRepository taskRepository, CurrentUserProvider currentUserProvider) {
         this.taskRepository = taskRepository;
+        this.currentUserProvider = currentUserProvider;
+    }
+
+    //service 内部统一获取当前用户 ID 的入口。
+    private Long currentUserId() {
+        return currentUserProvider.getCurrentUserId();
     }
 
     public Task createTask(CreateTaskRequest request) {
@@ -32,7 +40,7 @@ public class TaskService {
         validateCreateRequest(request);
         Task task = new Task();
 
-        task.setUserId(1L);
+        task.setUserId(currentUserId());
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
         task.setPriority(request.getPriority());
@@ -47,21 +55,27 @@ public class TaskService {
         return saved;
     }
 
+    //查单条任务：不属于当前用户时统一抛"不存在"，
     public Task getTaskById(Long id) {
 
-        return taskRepository.findById(id)
+        Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("任务不存在，id=" + id));
+
+        if (!task.getUserId().equals(currentUserId())) {
+            throw new BusinessException("任务不存在，id=" + id);
+        }
+        return task;
     }
 
     public List<Task> getAllTasks() {
-        return taskRepository.findAll();
+        return taskRepository.findByUserId(currentUserId());
     }
     public List<Task> searchTasks(String keyword) {
 
         if (keyword == null || keyword.isBlank()) {
             return getAllTasks();
         }
-        return taskRepository.searchByKeyword(keyword.trim());
+        return taskRepository.searchByUserIdAndKeyword(currentUserId(), keyword.trim());
     }
 
 
@@ -116,8 +130,7 @@ public class TaskService {
             throw new BusinessException("至少需要更新一个字段（title/description/priority/startTime/deadline）");
         }
 
-        // ---------- 第一步：解析新值（此时不改动 task） ----------
-
+        //1.解析新值
         LocalDateTime parsedStart = null;
         if (startTime != null) {
             parsedStart = TaskParamParser.parseDateTime(startTime);
@@ -134,8 +147,7 @@ public class TaskService {
             }
         }
 
-        // ---------- 第二步：算出"更新后"的最终值（新值优先，否则沿用旧值） ----------
-
+        //2.算出最终值
         String finalTitle = (title != null) ? title : task.getTitle();
         String finalDescription = (description != null) ? description : task.getDescription();
         TaskPriority finalPriority = (priority != null)
@@ -144,12 +156,14 @@ public class TaskService {
         LocalDateTime finalStart = (parsedStart != null) ? parsedStart : task.getStartTime();
         LocalDateTime finalDeadline = (parsedDeadline != null) ? parsedDeadline : task.getDeadline();
 
-        // ---------- 第三步：用最终值做完整校验（task 此时还是原样） ----------
-
+        //3.用最终值做完整校验
         if (finalTitle == null || finalTitle.isBlank()) {
             throw new BusinessException("标题不能为空");
         }
-
+        // 防御：存量数据若时间字段为空，给出明确业务错误而非 NPE
+        if (finalStart == null || finalDeadline == null) {
+            throw new BusinessException("开始时间和截止时间都不能为空。");
+        }
         if (!finalDeadline.isAfter(finalStart)) {
             throw new BusinessException(
                     "截止时间必须晚于开始时间。开始时间：" + finalStart
@@ -160,8 +174,7 @@ public class TaskService {
             throw new BusinessException("开始时间不能早于当前时间：" + finalStart);
         }
 
-        // ---------- 第四步：全部通过，一次性写回 ----------
-
+        //4.一次性写回
         task.setTitle(finalTitle);
         task.setDescription(finalDescription);
         task.setPriority(finalPriority);
