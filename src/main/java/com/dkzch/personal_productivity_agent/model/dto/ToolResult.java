@@ -15,6 +15,20 @@ public class ToolResult<T> {
         this.data = data;
     }
 
+    //true 表示"等待用户确认"，既非成功也非失败。
+    private boolean pending;
+
+    public static <T> ToolResult<T> pending(String message) {
+        ToolResult<T> r = new ToolResult<>(false, message, null);
+        r.pending = true;
+        return r;
+    }
+
+    public boolean isPending() {
+        return pending;
+    }
+
+
     public static <T> ToolResult<T> success(String message, T data) {
         return new ToolResult<>(true, message, data);
     }
