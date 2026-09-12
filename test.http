@@ -43,3 +43,46 @@ Content-Type: application/json
   "message": "你刚才调用 delete_task 返回了确认码 172DEFD9FDE145B5，我确认执行。请调用 confirm_action，actionId 传入 <新码2>。",
   "conversationId": "conv-002"
 }
+
+###
+POST http://localhost:8080/api/tasks
+Content-Type: application/json
+
+{
+  "title": "待删除测试",
+  "description": "Step 31-B 验证用",
+  "priority": "LOW",
+  "startTime": "2026-09-20T10:00:00",
+  "deadline": "2026-09-20T11:00:00"
+}
+
+### 【Step 31-B】第 1 轮：申请（记下确认码；DB 里任务应仍在）
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我删除任务 5",
+  "conversationId": "conv-001"
+}
+
+
+###
+GET http://localhost:8080/api/tasks
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我删除任务 5",
+  "conversationId": "conv-fresh-1"
+}
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "确认",
+  "conversationId": "conv-fresh-1"
+}
