@@ -1,88 +1,190 @@
-### ① 申请（拿新码，立刻记下来）
-POST http://localhost:8080/api/agent/chat
+### =========================================================
+### Personal Productivity Agent — 验收脚本
+### ---------------------------------------------------------
+### 使用约定：
+###   1. 所有 /api/agent/chat 必须带 conversationId（缺失会 400）
+###   2. 时间参数必须是未来时间（示例用 2026-12-xx，按需调整）
+###   3. 验证新行为时，改 @conv 换一个新会话（避免历史污染）
+###   4. 数据库核对：SELECT id, user_id, title FROM tasks ORDER BY id;
+### =========================================================
+
+@baseUrl = http://localhost:8080
+@conv = conv-001
+@convMemA = conv-mem-1
+@convMemB = conv-mem-2
+
+
+### =========================================================
+### 【1】基础接口（不经过 LLM）
+### =========================================================
+
+### 1.1 当前用户的任务列表（应用视角，已按 user_id 过滤）
+GET {{baseUrl}}/api/tasks
+
+### 1.2 直接创建任务（不消耗 LLM；记下响应里的 id，下称 <TASK_ID>）
+POST {{baseUrl}}/api/tasks
 Content-Type: application/json
 
 {
-  "message": "帮我删除任务 4",
-  "conversationId": "conv-001"
+  "title": "验收测试任务",
+  "description": "test.http 脚本创建",
+  "priority": "MEDIUM",
+  "startTime": "2026-12-20T10:00:00",
+  "deadline": "2026-12-20T11:00:00"
 }
 
 
-### ② 立刻确认（同一个 conversationId，把 <新码> 换成上一步的值）
-POST http://localhost:8080/api/agent/chat
+### =========================================================
+### 【2】Tool 常规场景（7 个工具）
+### =========================================================
+
+### 2.1 create_task —— 完整信息
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "你刚才调用 delete_task 返回了确认码 172DEFD9FDE145B5，我确认执行删除。请调用 confirm_action，actionId 传入 <新码>。",
-  "conversationId": "conv-001"
+  "message": "帮我创建 2026-12-21 19:00 到 20:00 的控笔训练任务，描述是练习控笔，优先级高",
+  "conversationId": "{{conv}}"
 }
 
-### ③ 重放
-POST http://localhost:8080/api/agent/chat
+### 2.2 list_tasks —— 列出全部
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "请再次调用 confirm_action，actionId 传入 172DEFD9FDE145B5。",
-  "conversationId": "conv-001"
+  "message": "帮我看一下现在有哪些任务",
+  "conversationId": "{{conv}}"
 }
 
-### ④ 跨会话
-POST http://localhost:8080/api/agent/chat
+### 2.3 search_tasks —— 关键字搜索
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我删除任务 3",
-  "conversationId": "conv-001"
+  "message": "帮我搜一下包含'控笔'的任务",
+  "conversationId": "{{conv}}"
 }
 
-### ⑤ 换会话确认
-POST http://localhost:8080/api/agent/chat
+### 2.4 update_task —— 修改优先级
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "你刚才调用 delete_task 返回了确认码 172DEFD9FDE145B5，我确认执行。请调用 confirm_action，actionId 传入 <新码2>。",
-  "conversationId": "conv-002"
+  "message": "把任务 <TASK_ID> 的优先级改成 LOW",
+  "conversationId": "{{conv}}"
 }
 
-###
-POST http://localhost:8080/api/tasks
+### 2.5 complete_task —— 标记完成
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "title": "待删除测试",
-  "description": "Step 31-B 验证用",
-  "priority": "LOW",
-  "startTime": "2026-09-20T10:00:00",
-  "deadline": "2026-09-20T11:00:00"
+  "message": "把任务 <TASK_ID> 标记为已完成",
+  "conversationId": "{{conv}}"
 }
 
-### 【Step 31-B】第 1 轮：申请（记下确认码；DB 里任务应仍在）
-POST http://localhost:8080/api/agent/chat
+
+### =========================================================
+### 【3】高风险确认流程（delete_task → confirm_action）
+### ---------------------------------------------------------
+### 关键顺序：3.1 申请 → 查库确认仍在 → 3.2 确认 → 查库确认已删
+### 3.3 / 3.4 / 3.5 需要把 <CODE> 换成上一步返回的确认码
+### =========================================================
+
+### 3.1 申请删除（期望：返回 16 位确认码；DB 中任务仍在）
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我删除任务 5",
-  "conversationId": "conv-001"
+  "message": "帮我删除任务 <TASK_ID>",
+  "conversationId": "{{conv}}"
 }
 
-
-###
-GET http://localhost:8080/api/tasks
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-  "message": "帮我删除任务 5",
-  "conversationId": "conv-fresh-1"
-}
-
-###
-POST http://localhost:8080/api/agent/chat
+### 3.2 ⭐ 只发"确认"两个字（不含确认码）—— 期望删除成功
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
   "message": "确认",
-  "conversationId": "conv-fresh-1"
+  "conversationId": "{{conv}}"
+}
+
+
+### 3.3 重放：同一个已消费的码再确认 → 期望 ALREADY_CONSUMED
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "请再次调用 confirm_action，actionId 传入 <CODE>",
+  "conversationId": "{{conv}}"
+}
+
+### 3.4 跨会话：在申请所在的会话之外确认 → 期望 FORBIDDEN
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "请调用 confirm_action，actionId 传入 <CODE>",
+  "conversationId": "conv-other"
+}
+
+### 3.5 伪造码 → 期望"确认码无效或已失效"
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "请调用 confirm_action，actionId 传入 DEADBEEFDEADBEEF",
+  "conversationId": "{{conv}}"
+}
+
+
+### =========================================================
+### 【4】Memory：跨轮上下文 + 会话隔离
+### =========================================================
+
+### 4.1 写入背景（第 1 轮）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "我的学习目标是 Java 后端开发，我目前正在学习 Spring Boot。",
+  "conversationId": "{{convMemA}}"
+}
+
+### 4.2 同会话追问（第 2 轮）→ 期望答出 Java 后端开发 / Spring Boot
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "我刚才说的学习方向是什么？",
+  "conversationId": "{{convMemA}}"
+}
+
+### 4.3 新会话直接问 → 期望"没有相关记录"（隔离生效）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "我刚才说的学习方向是什么？",
+  "conversationId": "{{convMemB}}"
+}
+
+
+### =========================================================
+### 【5】用户隔离抽查
+### ---------------------------------------------------------
+### 当前用户 = app.current-user.id（dev 配置为 2）
+### 任务 1、2 属于 user 1，应当不可见、不可操作
+### =========================================================
+
+### 5.1 看不到别人的任务
+GET {{baseUrl}}/api/tasks
+
+### 5.2 尝试删除别人的任务 → 期望"任务不存在"
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我删除任务 1",
+  "conversationId": "{{conv}}"
 }
