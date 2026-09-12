@@ -1,146 +1,45 @@
-### =============================================
-### 阶段 A 端到端回归：4 类场景
-### 运行方式：IDEA HTTP Client 窗口逐个点击绿色箭头
-### =============================================
-
-
-### ---------- 场景 1：完整信息（成功路径） ----------
-
-### 1a 通过 Tool 创建（绝对时间）
+### ① 申请（拿新码，立刻记下来）
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建 2026-09-10 19:00 到 20:00 的控笔训练任务，描述是练习控笔，优先级高"
+  "message": "帮我删除任务 4",
+  "conversationId": "conv-001"
 }
 
-### 1b 通过 Service 创建（绕开 LLM，验证 Service 层）
-POST http://localhost:8080/api/tasks
-Content-Type: application/json
 
-{
-  "title": "任务A",
-  "description": "直接通过 Service 创建",
-  "priority": "MEDIUM",
-  "startTime": "2026-09-10T19:00:00",
-  "deadline": "2026-09-10T20:00:00"
-}
-
-### 1c 相对时间：依赖 Step 6 的当前时间注入
+### ② 立刻确认（同一个 conversationId，把 <新码> 换成上一步的值）
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建明天 19:00 到 20:00 的阅读任务，描述是读书，优先级中"
+  "message": "你刚才调用 delete_task 返回了确认码 172DEFD9FDE145B5，我确认执行删除。请调用 confirm_action，actionId 传入 <新码>。",
+  "conversationId": "conv-001"
 }
 
-
-### ---------- 场景 2：信息不足（Agent 应反问） ----------
-
+### ③ 重放
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建个任务"
+  "message": "请再次调用 confirm_action，actionId 传入 172DEFD9FDE145B5。",
+  "conversationId": "conv-001"
 }
 
-
-### ---------- 场景 3：模糊时间（应识别日期，时间不明可反问） ----------
-
+### ④ 跨会话
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建下周三下午的会议准备任务，描述是准备会议，优先级中"
+  "message": "帮我删除任务 3",
+  "conversationId": "conv-001"
 }
 
-
-### ---------- 场景 4：非法优先级（应降级 MEDIUM） ----------
-
+### ⑤ 换会话确认
 POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我创建 2026-09-10 19:00 到 20:00 的测试任务，描述是验证，优先级超级高"
-}
-
-
-### ---------- 验证：查全部任务 ----------
-
-GET http://localhost:8080/api/tasks/1
-
-###
-DELETE http://localhost:8080/api/tasks/1
-
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-  "message": "删除任务999"
-}
-
-###
-POST http://localhost:8080/api/tasks
-Content-Type: application/json
-
-{
-  "title": "练字",
-  "description": "练习字体",
-  "priority": "HIGH",
-  "startTime": "2026-09-10T19:00:00",
-  "deadline": "2026-09-10T20:00:00"
-}
-
-###
-POST http://localhost:8080/api/tasks
-Content-Type: application/json
-
-{
-  "title": "阅读",
-  "description": "练习阅读",
-  "priority": "HIGH",
-  "startTime": "2026-09-10T19:00:00",
-  "deadline": "2026-09-10T20:00:00"
-}
-
-###
-POST http://localhost:8080/api/tasks
-Content-Type: application/json
-
-{
-  "title": "复习数学",
-  "description": "练习数学题",
-  "priority": "HIGH",
-  "startTime": "2026-09-10T19:00:00",
-  "deadline": "2026-09-10T20:00:00"
-}
-
-###
-POST http://localhost:8080/api/tasks
-Content-Type: application/json
-
-{
-  "title": "新任务",
-  "description": "验证 id 不重复",
-  "priority": "MEDIUM",
-  "startTime": "2026-09-10T19:00:00",
-  "deadline": "2026-09-10T20:00:00"
-}
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-  "message": "帮我看一下现在有哪些任务"
-}
-
-###
-POST http://localhost:8080/api/agent/chat
-Content-Type: application/json
-
-{
-  "message": "帮我创建 2026-09-12 晚上7点到8点的英语听力任务，优先级中"
+  "message": "你刚才调用 delete_task 返回了确认码 172DEFD9FDE145B5，我确认执行。请调用 confirm_action，actionId 传入 <新码2>。",
+  "conversationId": "conv-002"
 }

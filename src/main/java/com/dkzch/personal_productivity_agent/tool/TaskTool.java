@@ -1,7 +1,6 @@
 package com.dkzch.personal_productivity_agent.tool;
 
-import com.dkzch.personal_productivity_agent.common.BusinessException;
-import com.dkzch.personal_productivity_agent.common.TaskParamParser;
+import com.dkzch.personal_productivity_agent.common.*;
 import com.dkzch.personal_productivity_agent.model.dto.CreateTaskRequest;
 import com.dkzch.personal_productivity_agent.model.dto.TaskSummary;
 import com.dkzch.personal_productivity_agent.model.dto.ToolResult;
@@ -12,7 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.ai.tool.annotation.Tool;
 import java.time.LocalDateTime;
 import java.util.List;
-
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,8 +24,20 @@ public class TaskTool {
     private static final Logger log = LoggerFactory.getLogger(TaskTool.class);
     private final TaskService taskService;
 
-    public TaskTool(TaskService taskService) {
+    /** 待确认动作的有效期（分钟） */
+    private static final int CONFIRMATION_TTL_MINUTES = 10;
+
+    /** 确认码长度：16 位十六进制 = 64 bit 随机空间 */
+    private static final int ACTION_ID_LENGTH = 16;
+    private final PendingActionStore pendingActionStore;
+    private final CurrentUserProvider currentUserProvider;
+
+    public TaskTool(TaskService taskService,
+                    PendingActionStore pendingActionStore,
+                    CurrentUserProvider currentUserProvider) {
         this.taskService = taskService;
+        this.pendingActionStore = pendingActionStore;
+        this.currentUserProvider = currentUserProvider;
     }
 
     @Tool(
@@ -236,27 +248,137 @@ public class TaskTool {
             name = "delete_task",
             description = "永久删除指定的任务，此操作不可恢复！"
                     + "当用户明确要求删除任务时使用（例如'删除任务 2'、'把某个任务删掉'）。"
-                    + "需要任务 ID；如果用户不确定 ID，先用 list_tasks 或 search_tasks 查找。")
+                    + "需要任务 ID；如果用户不确定 ID，先用 list_tasks 或 search_tasks 查找。"
+                    + "本工具不会立即删除，而是返回一个待确认信息（含确认码）；"
+                    + "你必须把待确认信息完整转述给用户并等待用户明确同意，"
+                    + "用户同意后再调用 confirm_action 并传入该确认码。")
     public ToolResult<TaskSummary> deleteTask(
             @ToolParam(description = "要删除的任务 ID，纯数字") Long id
     ) {
+
+        if (id == null) {
+            log.warn("delete_task 缺少任务 id");
+            return ToolResult.failure(
+                    "缺少任务 ID，无法确认要删除哪个任务。请先用 list_tasks 查看任务及其 ID。");
+        }
+
+        // 第一步：先校验任务存在（不给用户确认一个不存在的任务）
+        Task task;
         try {
-            Task task = taskService.deleteTask(id);
-
-            log.info("delete_task 执行成功，taskId={}, title={}", id, task.getTitle());
-
-            return ToolResult.success(
-                    "任务已永久删除：" + task.getTitle(),
-                    TaskSummary.from(task)
-            );
-
+            task = taskService.getTaskById(id);
         } catch (BusinessException e) {
-            log.warn("delete_task 执行失败，taskId={}, 原因={}", id, e.getMessage());
-
+            log.warn("delete_task 前置校验失败，taskId={}, 原因={}", id, e.getMessage());
             return ToolResult.failure(
                     "无法删除任务：" + e.getMessage()
                             + "。请向用户确认任务 ID 是否正确，必要时先用 list_tasks 查看。");
         }
+
+        // 第二步：按风险分级决策——HIGH 走待确认，其余直接执行
+        if (ToolRiskRegistry.requiresConfirmation(ToolRiskRegistry.DELETE_TASK)) {
+
+            String actionId = generateActionId();
+            LocalDateTime now = LocalDateTime.now();
+
+            PendingAction action = new PendingAction(
+                    actionId,
+                    ToolRiskRegistry.DELETE_TASK,
+                    Map.of("id", id),                          // 参数快照，确认后按它执行
+                    currentUserProvider.getCurrentUserId(),     // 服务端决定，客户端不可伪造
+                    ConversationContext.getConversationId(),    // 请求上下文，不经过 LLM
+                    now,
+                    now.plusMinutes(CONFIRMATION_TTL_MINUTES)
+            );
+            pendingActionStore.save(action);
+
+            log.info("delete_task 转待确认，actionId={}, taskId={}, userId={}",
+                    actionId, id, action.getUserId());
+
+            return ToolResult.pending(
+                    "这是一个不可恢复的操作，需要用户确认后才能执行。"
+                            + "任务「" + task.getTitle() + "」(id=" + id + ") 即将被永久删除。"
+                            + "请把以上信息和确认码完整转述给用户，并等待用户明确同意。"
+                            + "确认码：" + actionId + "（有效期 " + CONFIRMATION_TTL_MINUTES + " 分钟）。"
+                            + "用户明确同意后，调用 confirm_action 并传入 actionId=\"" + actionId + "\"；"
+                            + "用户未明确同意时，不要调用 confirm_action。");
+        }
+
+        Task deleted = taskService.deleteTask(id);
+        log.info("delete_task 执行成功（无需确认），taskId={}, title={}", id, deleted.getTitle());
+        return ToolResult.success("任务已永久删除：" + deleted.getTitle(), TaskSummary.from(deleted));
+    }
+
+    @Tool(
+            name = "confirm_action",
+            description = "确认并执行此前被标记为待确认的高风险操作（如删除任务）。"
+                    + "仅当用户对上一条待确认信息给出明确同意（例如'确认'、'是的，删吧'、'同意'）时调用。"
+                    + "必须传入你向用户转述过的那个确认码。"
+                    + "用户没有明确同意时，不要调用本工具。")
+    public ToolResult<TaskSummary> confirmAction(
+            @ToolParam(description = "待确认操作的确认码，例如 3F9A1C7E2B4D8056") String actionId
+    ) {
+
+        if (actionId == null || actionId.isBlank()) {
+            return ToolResult.failure("缺少确认码，无法执行确认。请重新发起该操作。");
+        }
+
+        // 归一化：存储时为大写，容忍用户/LLM 传入小写
+        String normalizedActionId = actionId.trim().toUpperCase();
+
+        ConsumeResult result = pendingActionStore.consume(
+                normalizedActionId,
+                currentUserProvider.getCurrentUserId(),
+                ConversationContext.getConversationId()
+        );
+
+        if (!result.isSuccess()) {
+            log.warn("confirm_action 消费失败，actionId={}, outcome={}",
+                    normalizedActionId, result.outcome());
+
+            return ToolResult.failure(switch (result.outcome()) {
+                case ALREADY_CONSUMED -> "该操作已经执行过了，无需重复确认。";
+                case EXPIRED -> "确认已超时（有效期 " + CONFIRMATION_TTL_MINUTES
+                        + " 分钟），操作已取消。如仍需执行，请重新发起。";
+                // NOT_FOUND 与 FORBIDDEN 统一话术：不泄露"确认码存在但不属于你"
+                default -> "确认码无效或已失效，操作已取消。如仍需执行，请重新发起。";
+            });
+        }
+
+        PendingAction action = result.actionIfSuccess()
+                .orElseThrow(() -> new IllegalStateException("consume 返回 SUCCESS 但未携带 action"));
+
+        log.info("confirm_action 消费成功，actionId={}, toolName={}",
+                normalizedActionId, action.getToolName());
+
+        return executeConfirmedAction(action);
+    }
+
+    /** 按待办记录的动作类型分发执行。 */
+    private ToolResult<TaskSummary> executeConfirmedAction(PendingAction action) {
+
+        if (ToolRiskRegistry.DELETE_TASK.equals(action.getToolName())) {
+
+            Long taskId = ((Number) action.getArgs().get("id")).longValue();
+
+            try {
+                Task task = taskService.deleteTask(taskId);
+                log.info("确认后执行删除成功，taskId={}, title={}", taskId, task.getTitle());
+                return ToolResult.success("任务已永久删除：" + task.getTitle(), TaskSummary.from(task));
+            } catch (BusinessException e) {
+                log.warn("确认后执行删除失败，taskId={}, 原因={}", taskId, e.getMessage());
+                return ToolResult.failure("执行失败：" + e.getMessage());
+            }
+        }
+
+        log.error("确认动作类型未实现，toolName={}", action.getToolName());
+        return ToolResult.failure("不支持的确认操作类型：" + action.getToolName());
+    }
+
+    /** 16 位十六进制确认码（64 bit 随机空间）。 */
+    private String generateActionId() {
+        return UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, ACTION_ID_LENGTH)
+                .toUpperCase();
     }
 
 
