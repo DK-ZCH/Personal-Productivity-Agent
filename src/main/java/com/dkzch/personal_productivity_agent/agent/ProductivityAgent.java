@@ -8,7 +8,7 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.stereotype.Component;
-
+import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -27,14 +27,19 @@ public class ProductivityAgent {
     private final TaskTool taskTool;
     private final PromptService promptService;
 
-    public ProductivityAgent(ChatClient.Builder chatClientBuilder,TaskTool taskTool,PromptService promptService) {
+    public ProductivityAgent(ChatClient.Builder chatClientBuilder,
+                             TaskTool taskTool,
+                             PromptService promptService,
+                             ChatMemoryRepository chatMemoryRepository) {
 
         this.taskTool = taskTool;
         this.promptService = promptService;
 
-        // 显式创建记忆实例，不依赖自动配置的默认窗口行为：
-        // 窗口大小是明确的架构决策，应该写在代码里而不是靠默认值
+        // 仓库由 Spring AI 自动配置注入：
+        // classpath 上存在 JDBC starter 时，注入的就是 JdbcChatMemoryRepository；
+        // 仍然是显式组装 ChatMemory，窗口大小保持在代码里可见
         ChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(MEMORY_MAX_MESSAGES)
                 .build();
 
@@ -42,6 +47,7 @@ public class ProductivityAgent {
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
     }
+
 
 
     public String chat(String message) {

@@ -188,3 +188,16 @@ Content-Type: application/json
   "message": "帮我删除任务 1",
   "conversationId": "{{conv}}"
 }
+
+
+### 第 1 轮
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "我的学习目标是 Java 后端开发，我目前正在学习 Spring Boot。", "conversationId": "conv-persist-1" }
+
+### 重启后的第 2 轮
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "我刚才说的学习方向是什么？", "conversationId": "conv-persist-1" }
