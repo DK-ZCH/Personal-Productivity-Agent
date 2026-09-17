@@ -12,6 +12,9 @@
 @conv = conv-001
 @convMemA = conv-mem-1
 @convMemB = conv-mem-2
+@convPlan = conv-plan-1
+@convPlan2 = conv-plan-2
+@convPlan3 = conv-plan-3
 
 
 ### =========================================================
@@ -70,7 +73,7 @@ POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "把任务 <TASK_ID> 的优先级改成 LOW",
+  "message": "把任务7的优先级改成 LOW",
   "conversationId": "{{conv}}"
 }
 
@@ -79,7 +82,25 @@ POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "把任务 <TASK_ID> 标记为已完成",
+  "message": "把任务7标记为已完成",
+  "conversationId": "{{conv}}"
+}
+
+### 2.6 get_task —— 按 ID 查详情（含失败路径）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我看一下任务8的详情",
+  "conversationId": "{{conv}}"
+}
+
+### 2.7 get_task 失败路径 —— 期望：查不到 + 结果=FAILURE（顺带验证切面三态）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我看一下任务 999 的详情",
   "conversationId": "{{conv}}"
 }
 
@@ -96,7 +117,7 @@ POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
 {
-  "message": "帮我删除任务 <TASK_ID>",
+  "message": "帮我删除任务8",
   "conversationId": "{{conv}}"
 }
 
@@ -190,41 +211,121 @@ Content-Type: application/json
 }
 
 
-### 第 1 轮
-POST http://localhost:8080/api/agent/chat
+### =========================================================
+### 【4-补】Memory 补充验证（持久化 / 记忆窗口）
+### =========================================================
+
+### 4.4 持久化：先发第 1 轮 → 【重启应用】→ 再发第 2 轮
+###     期望：重启后仍答得出（ChatMemory 存在 JDBC 表中）
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "我的学习目标是 Java 后端开发，我目前正在学习 Spring Boot。", "conversationId": "conv-persist-1" }
+{
+  "message": "我的学习目标是 Java 后端开发，我目前正在学习 Spring Boot。",
+  "conversationId": "conv-persist-1"
+}
 
-### 重启后的第 2 轮
-POST http://localhost:8080/api/agent/chat
+### （重启应用后再发这一条）
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "我刚才说的学习方向是什么？", "conversationId": "conv-persist-1" }
+{
+  "message": "我刚才说的学习方向是什么？",
+  "conversationId": "conv-persist-1"
+}
 
 
-### W1 —— 埋暗号
-POST http://localhost:8080/api/agent/chat
+### 4.5 记忆窗口（MEMORY_MAX_MESSAGES = 20）：埋暗号 → 填充 → 回问
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "请记住这个暗号：ZEBRA-7731，之后我会问你。", "conversationId": "conv-window-1" }
+{
+  "message": "请记住这个暗号：ZEBRA-7731，之后我会问你。",
+  "conversationId": "conv-window-1"
+}
 
-### W2 ~ W11 —— 连续 10 轮填充（把窗口挤满）
-POST http://localhost:8080/api/agent/chat
+### W2 ~ W11：连续填充（把 20 条窗口挤满，此处手动重复发送若干次）
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "再聊一句，这是第 11 句。", "conversationId": "conv-window-1" }
+{
+  "message": "再聊一句，这是第 11 句。",
+  "conversationId": "conv-window-1"
+}
 
-### W12 —— 关键提问
-POST http://localhost:8080/api/agent/chat
+### W12 关键提问 —— 期望：超出窗口后不再记得（已知边界，非 bug）
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "我最开始让你记住的暗号是什么？", "conversationId": "conv-window-1" }
+{
+  "message": "我最开始让你记住的暗号是什么？",
+  "conversationId": "conv-window-1"
+}
 
 
+### =========================================================
+### 【6】Planning：规划 — 展示 — 确认 — 执行（阶段 H）
+### ---------------------------------------------------------
+### 关键断言：
+###   6.1 只草拟 —— 跑完【立刻查库】，不得有新任务；
+###              该轮日志中【不得出现 name=create_task】
+###   6.3 同意后批量创建 —— 时间/优先级必须与 6.1 展示的【逐字一致】
+### =========================================================
+
+### 6.1 信息充分的规划意图 —— 期望：草拟 2-5 个任务 + 询问"是否按这个计划创建？"
+###     ⭐ 跑完立刻执行：SELECT id, title, start_time, priority FROM tasks;
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "我明天下午 2 点到 5 点有空，帮我安排数学、英语和控笔训练三个任务",
+  "conversationId": "{{convPlan}}"
+}
+
+### 6.2 意图不足 —— 期望：先询问内容 / 时长 / 优先级，【不创建任何任务】
+### ⚠️ 必须用独立会话（convPlan3）：若与 6.1 共用会话，Memory 会让 LLM
+###    把"帮我安排一下"理解为"确认刚才草拟的计划"，从而测不到"意图不足"分支
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我安排一下",
+  "conversationId": "{{convPlan3}}"
+}
+
+### 6.3 明确同意（必须与 6.1 同一 conversationId，否则"这个计划"无指代）
+###     期望：每个任务各调一次 create_task + 汇总表（含 ID 和时间）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "好，就按这个计划来",
+  "conversationId": "{{convPlan}}"
+}
+
+### 6.4 ⭐ 展示计划后【拒绝】—— 期望：回复"已取消"，不创建任何任务
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "帮我安排明天上午的任务",
+  "conversationId": "{{convPlan2}}"
+}
 
 ###
-POST http://localhost:8080/api/agent/chat
+POST {{baseUrl}}/api/agent/chat
 Content-Type: application/json
 
-{ "message": "好，就按这个计划来", "conversationId": "conv-plan-1" }
+{
+  "message": "先不创建，我再想想",
+  "conversationId": "{{convPlan2}}"
+}
+
+### 6.5 单个明确任务 —— 期望：直接创建，【不进入草拟流程】（防过度规划）
+POST {{baseUrl}}/api/agent/chat
+Content-Type: application/json
+
+{
+  "message": "创建 2026-12-22 19:00 到 20:00 的控笔训练，优先级高",
+  "conversationId": "{{convPlan}}"
+}
