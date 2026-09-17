@@ -201,3 +201,30 @@ POST http://localhost:8080/api/agent/chat
 Content-Type: application/json
 
 { "message": "我刚才说的学习方向是什么？", "conversationId": "conv-persist-1" }
+
+
+### W1 —— 埋暗号
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "请记住这个暗号：ZEBRA-7731，之后我会问你。", "conversationId": "conv-window-1" }
+
+### W2 ~ W11 —— 连续 10 轮填充（把窗口挤满）
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "再聊一句，这是第 11 句。", "conversationId": "conv-window-1" }
+
+### W12 —— 关键提问
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "我最开始让你记住的暗号是什么？", "conversationId": "conv-window-1" }
+
+
+
+###
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+
+{ "message": "好，就按这个计划来", "conversationId": "conv-plan-1" }
